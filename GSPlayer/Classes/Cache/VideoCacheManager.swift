@@ -8,7 +8,13 @@
 
 import Foundation
 
-private let directory = NSTemporaryDirectory().appendingPathComponent("GSPlayer")
+//private let directory = NSTemporaryDirectory().appendingPathComponent("GSPlayer")
+
+private let directory: String = {
+    let cachesDir = FileManager.default.urls(for: .cachesDirectory, 
+                                            in: .userDomainMask).first!
+    return cachesDir.appendingPathComponent("GSPlayer").path
+}()
 
 public enum VideoCacheManager {
     
