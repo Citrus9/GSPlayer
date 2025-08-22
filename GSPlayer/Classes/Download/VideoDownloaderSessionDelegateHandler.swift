@@ -20,13 +20,29 @@ protocol VideoDownloaderSessionDelegateHandlerDelegate: AnyObject {
 }
 
 class VideoDownloaderSessionDelegateHandler: NSObject {
-    
-    weak var delegate: VideoDownloaderSessionDelegateHandlerDelegate?
-    
-    var buffer = Data()
-    
-    init(delegate: VideoDownloaderSessionDelegateHandlerDelegate) {
-        self.delegate = delegate
+
+    // Global auth challenge override. If nil, default handling is used.
+    var authChallengeHandler: ((URLAuthenticationChallenge, @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) -> Void)?
+
+    private class WeakBox<T: AnyObject> {
+        weak var value: T?
+        init(_ value: T?) { self.value = value }
+    }
+
+    // Per-task delegate routing and buffers
+    private var taskDelegates: [Int: WeakBox<AnyObject>] = [:]
+    private var buffers: [Int: Data] = [:]
+
+    override init() { }
+
+    func register(task: URLSessionTask, delegate: VideoDownloaderSessionDelegateHandlerDelegate) {
+        taskDelegates[task.taskIdentifier] = WeakBox(delegate)
+        buffers[task.taskIdentifier] = Data()
+    }
+
+    func unregister(task: URLSessionTask) {
+        taskDelegates.removeValue(forKey: task.taskIdentifier)
+        buffers.removeValue(forKey: task.taskIdentifier)
     }
     
 }
@@ -34,28 +50,44 @@ class VideoDownloaderSessionDelegateHandler: NSObject {
 extension VideoDownloaderSessionDelegateHandler: URLSessionDataDelegate {
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        delegate?.urlSession(session, didReceive: challenge, completionHandler: completionHandler)
+        if let handler = authChallengeHandler {
+            handler(challenge, completionHandler)
+            return
+        }
+        completionHandler(.performDefaultHandling, nil)
     }
     
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        delegate?.urlSession(session, dataTask: dataTask, didReceive: response, completionHandler: completionHandler)
+        let tid = dataTask.taskIdentifier
+        if let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate {
+            delegate.urlSession(session, dataTask: dataTask, didReceive: response, completionHandler: completionHandler)
+        } else {
+            completionHandler(.cancel)
+        }
     }
     
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        buffer.append(data)
-        
-        guard buffer.count > bufferSize else { return }
-        
+        let tid = dataTask.taskIdentifier
+        if buffers[tid] == nil { buffers[tid] = Data() }
+        buffers[tid]?.append(data)
+        guard let count = buffers[tid]?.count, count > bufferSize else { return }
         callbackBuffer(session: session, dataTask: dataTask)
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        
-        if buffer.count > 0 && error == nil {
-            callbackBuffer(session: session, dataTask: task as! URLSessionDataTask)
+        let tid = task.taskIdentifier
+        if let bufferCount = buffers[tid]?.count, bufferCount > 0, error == nil, let dt = task as? URLSessionDataTask {
+            callbackBuffer(session: session, dataTask: dt)
         }
-        
-        delegate?.urlSession(session, task: task, didCompleteWithError: error)
+        if let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate {
+            delegate.urlSession(session, task: task, didCompleteWithError: error)
+        }
+        unregister(task: task)
+        if #available(iOS 13.0, macOS 10.15, *) {
+            Task { [tid] in
+                await VideoDownloadManager.shared.untrack(taskIdentifier: tid)
+            }
+        }
     }
     
 }
@@ -63,12 +95,12 @@ extension VideoDownloaderSessionDelegateHandler: URLSessionDataDelegate {
 private extension VideoDownloaderSessionDelegateHandler {
     
     private func callbackBuffer(session: URLSession, dataTask: URLSessionDataTask) {
+        let tid = dataTask.taskIdentifier
+        guard let buffer = buffers[tid], let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate else { return }
         let range: Range<Int> = 0 ..< buffer.count
         let chunk = buffer.subdata(in: range)
-        
-        buffer.replaceSubrange(range, with: [], count: 0)
-        
-        delegate?.urlSession(session, dataTask: dataTask, didReceive: chunk)
+        buffers[tid]?.replaceSubrange(range, with: [], count: 0)
+        delegate.urlSession(session, dataTask: dataTask, didReceive: chunk)
     }
     
 }

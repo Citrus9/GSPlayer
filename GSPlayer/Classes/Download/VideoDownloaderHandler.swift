@@ -37,9 +37,8 @@ class VideoDownloaderHandler {
     private let url: URL
     private var actions: [VideoCacheAction]
     private let cacheHandler: VideoCacheHandler
+    private let cacheIO: CacheIO
     
-    private var session: URLSession?
-    private var sessionDelegate: VideoDownloaderSessionDelegateHandler?
     private var task: URLSessionDataTask?
     
     private var isCancelled = false
@@ -50,6 +49,7 @@ class VideoDownloaderHandler {
         self.url = url
         self.actions = actions
         self.cacheHandler = cacheHandler
+        self.cacheIO = CacheIO(handler: cacheHandler)
     }
     
     deinit {
@@ -61,7 +61,7 @@ class VideoDownloaderHandler {
     }
     
     func cancel() {
-        session?.invalidateAndCancel()
+        task?.cancel()
         isCancelled = true
     }
     
@@ -78,8 +78,7 @@ class VideoDownloaderHandler {
 extension VideoDownloaderHandler: VideoDownloaderSessionDelegateHandlerDelegate {
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
-        let trust = challenge.protectionSpace.serverTrust
-        completionHandler(.useCredential, trust != nil ? URLCredential(trust: trust!) : nil)
+        completionHandler(.performDefaultHandling, nil)
     }
     
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
@@ -99,20 +98,33 @@ extension VideoDownloaderHandler: VideoDownloaderSessionDelegateHandlerDelegate 
         guard !isCancelled else { return }
         
         let range = NSRange(location: startOffset, length: data.count)
-        if cacheHandler.cache(data: data, for: range)
-        {
-            cacheHandler.save()
-            
+        if #available(iOS 13.0, macOS 10.15, *) {
+            Task { [cacheIO] in
+                _ = await cacheIO.cache(data: data, for: range)
+                await cacheIO.saveDebounced()
+            }
             startOffset += data.count
-            
             delegate?.handler(self, didReceive: data, isLocal: false)
             notifyProgress(flush: false)
+        } else {
+            let didCache = cacheHandler.cache(data: data, for: range)
+            if didCache {
+                startOffset += data.count
+                delegate?.handler(self, didReceive: data, isLocal: false)
+                notifyProgress(flush: false)
+            }
         }
         
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        cacheHandler.save()
+        if #available(iOS 13.0, macOS 10.15, *) {
+            Task { [cacheIO] in
+                await cacheIO.saveNow()
+            }
+        } else {
+            cacheHandler.save()
+        }
         
         if let error = error {
             delegate?.handler(self, didFinish: error)
@@ -144,14 +156,6 @@ private extension VideoDownloaderHandler {
             return
         }
         
-        sessionDelegate = VideoDownloaderSessionDelegateHandler(delegate: self)
-        
-        session = URLSession(
-            configuration: .ephemeral,
-            delegate: VideoDownloaderSessionDelegateHandler(delegate: self),
-            delegateQueue: .main
-        )
-        
         var urlRequest = URLRequest(
             url: url,
             cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
@@ -168,8 +172,27 @@ private extension VideoDownloaderHandler {
         
         startOffset = start
         
-        task = session?.dataTask(with: urlRequest)
-        task?.resume()
+        if #available(iOS 13.0, macOS 10.15, *) {
+            Task { [weak self] in
+                guard let self else { return }
+                let session = await VideoDownloadManager.shared.sharedSession()
+                let t = session.dataTask(with: urlRequest)
+                self.task = t
+                await VideoDownloadManager.shared.register(task: t, delegate: self)
+                await VideoDownloadManager.shared.track(task: t, for: self.url)
+                let effPriority = await VideoDownloadManager.shared.currentPriority(for: self.url)
+                t.priority = effPriority
+                t.resume()
+            }
+        } else {
+            // Fallback: local URLSession with background delegate queue
+            let localDelegate = VideoDownloaderSessionDelegateHandler()
+            let localSession = URLSession(configuration: .ephemeral, delegate: localDelegate, delegateQueue: delegateQueue)
+            let t = localSession.dataTask(with: urlRequest)
+            localDelegate.register(task: t, delegate: self)
+            task = t
+            t.resume()
+        }
     }
     
     func notifyProgress(flush: Bool) {
@@ -183,6 +206,20 @@ private extension VideoDownloaderHandler {
             object: nil,
             userInfo: ["configuration": configuration]
         )
+
+        // Publish AsyncStream progress (10 Hz)
+        #if canImport(Foundation)
+        if #available(iOS 13.0, macOS 10.15, *) {
+            let received = Int64(startOffset)
+            let expected = Int64(configuration.info?.contentLength ?? 0)
+            let urlCopy = url
+            Task {
+                let pr = await VideoDownloadManager.shared.currentPriority(for: urlCopy)
+                let progress = DownloadProgress(url: urlCopy, receivedBytes: received, expectedBytes: expected > 0 ? expected : nil, priority: pr)
+                await VideoDownloadManager.shared.publish(progress)
+            }
+        }
+        #endif
     }
     
     func notifyFinished(error: Error?) {
