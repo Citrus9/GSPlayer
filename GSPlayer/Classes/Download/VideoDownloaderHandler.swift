@@ -86,7 +86,7 @@ extension VideoDownloaderHandler: VideoDownloaderSessionDelegateHandlerDelegate 
         if let http = response as? HTTPURLResponse {
             let code = http.statusCode
             #if DEBUG
-            let cr = http.value(forHeaderKey: "Content-Range") ?? "-"
+            let cr = http.value(forHeaderKey: "Content-Range") ?? "-" //error: let cr = http.value(forHeaderK
             print("🎥 [GS] 🛰️ response ok — status=\(code) mime=\(response.mimeType ?? "") cr=\(cr)")
             #endif
             if (200..<300).contains(code) || code == 206 {
@@ -220,4 +220,12 @@ private extension VideoDownloaderHandler {
         )
     }
     
+}
+
+private extension HTTPURLResponse {
+    func value(forHeaderKey key: String) -> String? {
+        return allHeaderFields
+            .first { $0.key.description.caseInsensitiveCompare(key) == .orderedSame }?
+            .value as? String
+    }
 }
