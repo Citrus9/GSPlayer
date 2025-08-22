@@ -18,6 +18,16 @@ public class VideoLoadManager: NSObject {
     
     private(set) var loaderMap: [URL: VideoLoader] = [:]
     
+    public func invalidate(url: URL) {
+        if let loader = loaderMap[url] {
+            loader.cancel()
+            loaderMap.removeValue(forKey: url)
+            #if DEBUG
+            print("🎥 [GS] 🧯 invalidate loader — \(url.lastPathComponent)")
+            #endif
+        }
+    }
+    
 }
 
 extension VideoLoadManager: AVAssetResourceLoaderDelegate {

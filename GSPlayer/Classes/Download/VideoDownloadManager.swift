@@ -59,6 +59,7 @@ public actor VideoDownloadManager {
     // MARK: - Scheduling State
     struct Entry { var priority: Float; var pins: [String: Float] }
     private var entries: [URL: Entry] = [:]
+    private var prefetchers: [URL: VideoDownloader] = [:]
     
     // URL ↔︎ Task mapping
     private var urlToTaskIds: [URL: Set<Int>] = [:]
@@ -98,7 +99,7 @@ public actor VideoDownloadManager {
     public func setConcurrency(maxActive: Int, perHost: Int) {
         self.maxActive = maxActive
         self.perHost = perHost
-        _ = (maxActive, perHost) // silence unused warnings for now
+        Task { await recreateSessionIfIdle() }
     }
 
     public func isDownloading(url: URL) -> Bool {
@@ -120,6 +121,7 @@ public actor VideoDownloadManager {
                     let cacheHandler = try VideoCacheHandler(url: url)
                     if cacheHandler.configuration.downloadedByteCount < byteCount {
                         let downloader = VideoDownloader(url: url, cacheHandler: cacheHandler)
+                        await retainPrefetcher(downloader, for: url)
                         downloader.download(from: 0, length: byteCount)
                     }
                 } catch { }
@@ -178,7 +180,10 @@ public actor VideoDownloadManager {
     public func untrack(taskIdentifier: Int) {
         if let url = taskIdToURL.removeValue(forKey: taskIdentifier) {
             urlToTaskIds[url]?.remove(taskIdentifier)
-            if urlToTaskIds[url]?.isEmpty == true { urlToTaskIds.removeValue(forKey: url) }
+            if urlToTaskIds[url]?.isEmpty == true {
+                urlToTaskIds.removeValue(forKey: url)
+                prefetchers.removeValue(forKey: url)
+            }
         }
     }
 
@@ -192,6 +197,21 @@ public actor VideoDownloadManager {
                 task.priority = eff
             }
         }
+    }
+
+    private func retainPrefetcher(_ downloader: VideoDownloader, for url: URL) {
+        prefetchers[url] = downloader
+    }
+
+    private func recreateSessionIfIdle() async {
+        let tasks = await session.getAllTasksAsync()
+        guard tasks.isEmpty else { return }
+        let cfg = URLSessionConfiguration.default
+        cfg.waitsForConnectivity = true
+        cfg.httpMaximumConnectionsPerHost = perHost
+        cfg.timeoutIntervalForRequest = 60
+        cfg.timeoutIntervalForResource = 120
+        session = URLSession(configuration: cfg, delegate: sessionDelegate, delegateQueue: delegateQueue)
     }
 }
 

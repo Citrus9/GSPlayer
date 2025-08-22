@@ -65,12 +65,20 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
         
         if info == nil, let httpResponse = response as? HTTPURLResponse {
             
-            let contentLength = String(httpResponse
+            let contentLengthFromRange = httpResponse
                 .value(forHeaderKey: "Content-Range")?
-                .split(separator: "/").last ?? "0").int ?? 0
+                .split(separator: "/")
+                .last
+                .flatMap { Int($0) }
+            
+            let contentLengthFromLength = httpResponse
+                .value(forHeaderKey: "Content-Length")
+                .flatMap { Int($0) }
+            
+            let contentLength = contentLengthFromRange ?? contentLengthFromLength ?? 0
             
             let contentType = httpResponse
-                .value(forHeaderKey: "Content-Type") ?? ""
+                .value(forHeaderKey: "Content-Type") ?? "video/mp4"
             
             let isByteRangeAccessSupported = httpResponse
                 .value(forHeaderKey: "Accept-Ranges")?
@@ -81,6 +89,9 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
                 contentType: contentType,
                 isByteRangeAccessSupported: isByteRangeAccessSupported
             ))
+            #if DEBUG
+            print("🎥 [GS] 🧠 meta — len=\(contentLength) type=\(contentType) range=\(isByteRangeAccessSupported)")
+            #endif
         }
         
         delegate?.downloader(self, didReceive: response)

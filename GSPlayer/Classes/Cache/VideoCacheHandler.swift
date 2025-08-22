@@ -131,9 +131,14 @@ public class VideoCacheHandler {
         defer {
             objc_sync_exit(writeFileHandle)
         }
-        guard let availableSpace = try? FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: false).resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity,
-              availableSpace > Int64(data.count) else {
-            return false
+        do {
+            let cachesURL = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
+            let values = try? cachesURL.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+            if let cap = values?.volumeAvailableCapacityForImportantUsage, cap < Int64(data.count) {
+                return false
+            }
+        } catch {
+            // Ignore capacity check on error; proceed with best-effort cache write
         }
         do
         {

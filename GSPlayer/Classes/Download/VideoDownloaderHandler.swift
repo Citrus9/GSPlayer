@@ -83,14 +83,24 @@ extension VideoDownloaderHandler: VideoDownloaderSessionDelegateHandlerDelegate 
     
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         #if !os(macOS)
-        guard
-            let mimeType = response.mimeType,
-            mimeType.contains("video/")
-            else { completionHandler(.cancel); return }
+        if let http = response as? HTTPURLResponse {
+            let code = http.statusCode
+            #if DEBUG
+            print("🎥 [GS] 🛰️ response ok — status=\(code) mime=\(response.mimeType ?? "")")
+            #endif
+            if (200..<300).contains(code) || code == 206 {
+                delegate?.handler(self, didReceive: response)
+                completionHandler(.allow)
+            } else {
+                #if DEBUG
+                print("🎥 [GS] 🚫 response rejected — status=\(code)")
+                #endif
+                completionHandler(.cancel)
+            }
+            return
+        }
         #endif
-        
         delegate?.handler(self, didReceive: response)
-        
         completionHandler(.allow)
     }
     

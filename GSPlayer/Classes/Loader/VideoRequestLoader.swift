@@ -7,6 +7,7 @@
 //
 
 import AVFoundation
+import UniformTypeIdentifiers
 
 protocol VideoRequestLoaderDelegate: AnyObject {
     
@@ -98,9 +99,16 @@ private extension VideoRequestLoader {
             return
         }
         
-        request.contentInformationRequest?.contentType = info.contentType
-        request.contentInformationRequest?.contentLength = Int64(info.contentLength)
+        let mime = info.contentType
+        let utType = UTType(mimeType: mime)
+            ?? UTType(filenameExtension: downloader.url.pathExtension)
+            ?? .mpeg4Movie
+        request.contentInformationRequest?.contentType = utType.identifier
+        request.contentInformationRequest?.contentLength = Int64(max(info.contentLength, 0))
         request.contentInformationRequest?.isByteRangeAccessSupported = info.isByteRangeAccessSupported
+        #if DEBUG
+        print("🎥 [GS] 🧠 contentInfo — utType=\(utType.identifier) len=\(request.contentInformationRequest?.contentLength ?? 0) range=\(request.contentInformationRequest?.isByteRangeAccessSupported ?? false)")
+        #endif
     }
     
 }
