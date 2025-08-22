@@ -86,7 +86,8 @@ extension VideoDownloaderHandler: VideoDownloaderSessionDelegateHandlerDelegate 
         if let http = response as? HTTPURLResponse {
             let code = http.statusCode
             #if DEBUG
-            print("🎥 [GS] 🛰️ response ok — status=\(code) mime=\(response.mimeType ?? "")")
+            let cr = http.value(forHeaderKey: "Content-Range") ?? "-"
+            print("🎥 [GS] 🛰️ response ok — status=\(code) mime=\(response.mimeType ?? "") cr=\(cr)")
             #endif
             if (200..<300).contains(code) || code == 206 {
                 delegate?.handler(self, didReceive: response)

@@ -65,17 +65,38 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
         
         if info == nil, let httpResponse = response as? HTTPURLResponse {
             
-            let contentLengthFromRange = httpResponse
-                .value(forHeaderKey: "Content-Range")?
-                .split(separator: "/")
-                .last
-                .flatMap { Int($0) }
+            let contentRangeRaw = httpResponse.value(forHeaderKey: "Content-Range")
             
-            let contentLengthFromLength = httpResponse
-                .value(forHeaderKey: "Content-Length")
-                .flatMap { Int($0) }
+            // Parse Content-Range into start/end/total (total may be unknown "*")
+            func parseContentRange(_ header: String) -> (start: Int, end: Int, total: Int?)? {
+                let trimmed = header.replacingOccurrences(of: " ", with: "")
+                guard trimmed.lowercased().hasPrefix("bytes") else { return nil }
+                let remainder = String(trimmed.dropFirst("bytes".count))
+                let parts = remainder.split(separator: "/")
+                guard parts.count == 2 else { return nil }
+                let rangePart = parts[0]
+                let totalPart = parts[1]
+                if rangePart == "*" {
+                    if let total = Int(totalPart) { return (0, total - 1, total) }
+                    return nil
+                }
+                let se = rangePart.split(separator: "-")
+                guard se.count == 2, let start = Int(se[0]), let end = Int(se[1]) else { return nil }
+                let total: Int? = (totalPart == "*") ? nil : Int(totalPart)
+                return (start, end, total)
+            }
             
-            let contentLength = contentLengthFromRange ?? contentLengthFromLength ?? 0
+            let parsed = contentRangeRaw.flatMap(parseContentRange(_:))
+            let lengthFromRangeTotal = parsed?.total
+            let lengthFromRangeLowerBound = parsed.map { $0.end + 1 }
+            let lengthFromHeader = httpResponse.value(forHeaderKey: "Content-Length").flatMap { Int($0) }
+            let lengthFromExpected = (response.expectedContentLength > 0) ? Int(response.expectedContentLength) : nil
+            
+            let contentLength = lengthFromRangeTotal
+                ?? lengthFromHeader
+                ?? lengthFromExpected
+                ?? lengthFromRangeLowerBound
+                ?? 1
             
             let contentType = httpResponse
                 .value(forHeaderKey: "Content-Type") ?? "video/mp4"
@@ -90,7 +111,7 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
                 isByteRangeAccessSupported: isByteRangeAccessSupported
             ))
             #if DEBUG
-            print("🎥 [GS] 🧠 meta — len=\(contentLength) type=\(contentType) range=\(isByteRangeAccessSupported)")
+            print("🎥 [GS] 🧠 meta — rawCR=\(contentRangeRaw ?? "-") len=\(contentLength) type=\(contentType) range=\(isByteRangeAccessSupported)")
             #endif
         }
         

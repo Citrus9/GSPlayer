@@ -103,8 +103,17 @@ private extension VideoRequestLoader {
         let utType = UTType(mimeType: mime)
             ?? UTType(filenameExtension: downloader.url.pathExtension)
             ?? .mpeg4Movie
+        // Ensure strictly positive contentLength for AVFoundation
+        var effectiveLength = info.contentLength
+        if effectiveLength <= 0 {
+            if let dr = request.dataRequest {
+                effectiveLength = max(1, Int(dr.requestedOffset) + dr.requestedLength)
+            } else {
+                effectiveLength = 1
+            }
+        }
         request.contentInformationRequest?.contentType = utType.identifier
-        request.contentInformationRequest?.contentLength = Int64(max(info.contentLength, 0))
+        request.contentInformationRequest?.contentLength = Int64(effectiveLength)
         request.contentInformationRequest?.isByteRangeAccessSupported = info.isByteRangeAccessSupported
         #if DEBUG
         print("🎥 [GS] 🧠 contentInfo — utType=\(utType.identifier) len=\(request.contentInformationRequest?.contentLength ?? 0) range=\(request.contentInformationRequest?.isByteRangeAccessSupported ?? false)")

@@ -165,8 +165,13 @@ public class VideoCacheHandler {
     
     func set(info: VideoInfo) {
         objc_sync_enter(writeFileHandle)
+        let previous = configuration.info
         configuration.info = info
-        writeFileHandle.truncateFile(atOffset: UInt64(info.contentLength))
+        if info.contentLength > 0 {
+            writeFileHandle.truncateFile(atOffset: UInt64(info.contentLength))
+        } else if let prev = previous, prev.contentLength > 0 {
+            writeFileHandle.truncateFile(atOffset: UInt64(prev.contentLength))
+        }
         writeFileHandle.synchronizeFile()
         objc_sync_exit(writeFileHandle)
     }
