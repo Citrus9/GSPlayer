@@ -67,7 +67,10 @@ public actor VideoDownloadManager {
 
     public func sharedSession() -> URLSession { session }
     func register(task: URLSessionTask, delegate: VideoDownloaderSessionDelegateHandlerDelegate) {
-        sessionDelegate.register(task: task, delegate: delegate)
+        // Marshal registration onto the same delegateQueue used by URLSession callbacks
+        delegateQueue.addOperation { [sessionDelegate] in
+            sessionDelegate.register(task: task, delegate: delegate)
+        }
     }
 
     // MARK: - Scheduling State

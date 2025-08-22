@@ -10,7 +10,7 @@ import Foundation
 
 private let bufferSize = 1024 * 256
 
-protocol VideoDownloaderSessionDelegateHandlerDelegate: AnyObject {
+@preconcurrency protocol VideoDownloaderSessionDelegateHandlerDelegate: AnyObject {
     
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void)
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void)
@@ -32,17 +32,24 @@ class VideoDownloaderSessionDelegateHandler: NSObject {
     // Per-task delegate routing and buffers
     private var taskDelegates: [Int: WeakBox<AnyObject>] = [:]
     private var buffers: [Int: Data] = [:]
+    
+    // Lock to guard access to taskDelegates and buffers
+    private let lock = NSLock()
 
     override init() { }
 
     func register(task: URLSessionTask, delegate: VideoDownloaderSessionDelegateHandlerDelegate) {
+        lock.lock()
         taskDelegates[task.taskIdentifier] = WeakBox(delegate)
         buffers[task.taskIdentifier] = Data()
+        lock.unlock()
     }
 
     func unregister(task: URLSessionTask) {
+        lock.lock()
         taskDelegates.removeValue(forKey: task.taskIdentifier)
         buffers.removeValue(forKey: task.taskIdentifier)
+        lock.unlock()
     }
     
 }
@@ -59,7 +66,10 @@ extension VideoDownloaderSessionDelegateHandler: URLSessionDataDelegate {
     
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         let tid = dataTask.taskIdentifier
-        if let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate {
+        lock.lock()
+        let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate
+        lock.unlock()
+        if let delegate = delegate {
             delegate.urlSession(session, dataTask: dataTask, didReceive: response, completionHandler: completionHandler)
         } else {
             completionHandler(.cancel)
@@ -68,20 +78,30 @@ extension VideoDownloaderSessionDelegateHandler: URLSessionDataDelegate {
     
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         let tid = dataTask.taskIdentifier
+        lock.lock()
         if buffers[tid] == nil { buffers[tid] = Data() }
         buffers[tid]?.append(data)
-        guard let count = buffers[tid]?.count, count > bufferSize else { return }
-        callbackBuffer(session: session, dataTask: dataTask)
+        let shouldFlush = (buffers[tid]?.count ?? 0) > bufferSize
+        lock.unlock()
+        if shouldFlush {
+            callbackBuffer(session: session, dataTask: dataTask)
+        }
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         let tid = task.taskIdentifier
-        if let bufferCount = buffers[tid]?.count, bufferCount > 0, error == nil, let dt = task as? URLSessionDataTask {
-            callbackBuffer(session: session, dataTask: dt)
+        if error == nil, let dt = task as? URLSessionDataTask {
+            lock.lock()
+            let hasPending = (buffers[tid]?.count ?? 0) > 0
+            lock.unlock()
+            if hasPending {
+                callbackBuffer(session: session, dataTask: dt)
+            }
         }
-        if let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate {
-            delegate.urlSession(session, task: task, didCompleteWithError: error)
-        }
+        lock.lock()
+        let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate
+        lock.unlock()
+        delegate?.urlSession(session, task: task, didCompleteWithError: error)
         unregister(task: task)
         Task { [tid] in
             await VideoDownloadManager.shared.untrack(taskIdentifier: tid)
@@ -94,10 +114,18 @@ private extension VideoDownloaderSessionDelegateHandler {
     
     private func callbackBuffer(session: URLSession, dataTask: URLSessionDataTask) {
         let tid = dataTask.taskIdentifier
-        guard let buffer = buffers[tid], let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate else { return }
+        lock.lock()
+        guard
+            let buffer = buffers[tid],
+            let delegate = taskDelegates[tid]?.value as? VideoDownloaderSessionDelegateHandlerDelegate
+        else {
+            lock.unlock()
+            return
+        }
         let range: Range<Int> = 0 ..< buffer.count
         let chunk = buffer.subdata(in: range)
-        buffers[tid]?.replaceSubrange(range, with: [], count: 0)
+        buffers[tid]?.removeSubrange(range)
+        lock.unlock()
         delegate.urlSession(session, dataTask: dataTask, didReceive: chunk)
     }
     
