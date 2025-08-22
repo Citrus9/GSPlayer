@@ -146,6 +146,33 @@ public actor VideoDownloadManager {
         }
     }
 
+    // MARK: - Batch helpers (PRD sustained prefetch)
+    // Coalesce duplicated URLs and apply max(byteCount) and max(priority),
+    // then set priorities and trigger prefetch for each URL.
+    public func prefetchBatch(_ updates: [(url: URL, byteCount: Int, priority: Float)]) async {
+        var merged: [URL: (Int, Float)] = [:]
+        for (u, b, p) in updates {
+            let current = merged[u]
+            let newB = max(b, current?.0 ?? 0)
+            let newP = max(p, current?.1 ?? 0.0)
+            merged[u] = (newB, newP)
+        }
+        // Apply priorities in one pass
+        await setPriorities(merged.map { ($0.key, $0.value.1) })
+        // Trigger prefetch for each URL to the merged budget
+        for (u, (b, p)) in merged {
+            prefetch(urls: [u], byteCount: b, priority: p)
+        }
+    }
+
+    public func pause(urls: [URL]) async {
+        for u in urls { await pause(url: u) }
+    }
+
+    public func resume(urls: [URL]) async {
+        for u in urls { await resume(url: u) }
+    }
+
     public func progressStream(for url: URL) -> AsyncStream<DownloadProgress> {
         return AsyncStream<DownloadProgress> { continuation in
             if progressContinuations[url] == nil { progressContinuations[url] = [] }
