@@ -83,10 +83,8 @@ extension VideoDownloaderSessionDelegateHandler: URLSessionDataDelegate {
             delegate.urlSession(session, task: task, didCompleteWithError: error)
         }
         unregister(task: task)
-        if #available(iOS 13.0, macOS 10.15, *) {
-            Task { [tid] in
-                await VideoDownloadManager.shared.untrack(taskIdentifier: tid)
-            }
+        Task { [tid] in
+            await VideoDownloadManager.shared.untrack(taskIdentifier: tid)
         }
     }
     

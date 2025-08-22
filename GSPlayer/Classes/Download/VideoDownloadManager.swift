@@ -7,7 +7,6 @@
 
 import Foundation
 
-@available(iOS 13.0, macOS 10.15, *)
 public struct DownloadProgress: Sendable {
     public let url: URL
     public let receivedBytes: Int64
@@ -15,7 +14,6 @@ public struct DownloadProgress: Sendable {
     public let priority: Float
 }
 
-@available(iOS 13.0, macOS 10.15, *)
 public actor VideoDownloadManager {
     public static let shared = VideoDownloadManager()
 
@@ -192,7 +190,6 @@ public actor VideoDownloadManager {
 }
 
 // Helper to synchronously snapshot tasks inside actor
-@available(iOS 13.0, macOS 10.15, *)
 private extension URLSession {
     func getAllTasksSync() -> [URLSessionTask] {
         var tasks: [URLSessionTask] = []

@@ -17,7 +17,6 @@ private let directory: String = {
     return cachesDir.appendingPathComponent("GSPlayer").path
 }()
 
-@available(iOS 13.0, macOS 11.0, *)
 public enum VideoCacheManager {
     
     public static func cachedFilePath(for url: URL, contentType: String? = nil) -> String {

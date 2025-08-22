@@ -7,7 +7,6 @@
 
 import Foundation
 
-@available(iOS 13.0, macOS 10.15, *)
 actor CacheIO {
     private let handler: VideoCacheHandler
     private var pendingSave = false

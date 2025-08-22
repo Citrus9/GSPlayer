@@ -98,32 +98,19 @@ extension VideoDownloaderHandler: VideoDownloaderSessionDelegateHandlerDelegate 
         guard !isCancelled else { return }
         
         let range = NSRange(location: startOffset, length: data.count)
-        if #available(iOS 13.0, macOS 10.15, *) {
-            Task { [cacheIO] in
-                _ = await cacheIO.cache(data: data, for: range)
-                await cacheIO.saveDebounced()
-            }
-            startOffset += data.count
-            delegate?.handler(self, didReceive: data, isLocal: false)
-            notifyProgress(flush: false)
-        } else {
-            let didCache = cacheHandler.cache(data: data, for: range)
-            if didCache {
-                startOffset += data.count
-                delegate?.handler(self, didReceive: data, isLocal: false)
-                notifyProgress(flush: false)
-            }
+        Task { [cacheIO] in
+            _ = await cacheIO.cache(data: data, for: range)
+            await cacheIO.saveDebounced()
         }
+        startOffset += data.count
+        delegate?.handler(self, didReceive: data, isLocal: false)
+        notifyProgress(flush: false)
         
     }
     
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if #available(iOS 13.0, macOS 10.15, *) {
-            Task { [cacheIO] in
-                await cacheIO.saveNow()
-            }
-        } else {
-            cacheHandler.save()
+        Task { [cacheIO] in
+            await cacheIO.saveNow()
         }
         
         if let error = error {
@@ -172,25 +159,15 @@ private extension VideoDownloaderHandler {
         
         startOffset = start
         
-        if #available(iOS 13.0, macOS 10.15, *) {
-            Task { [weak self] in
-                guard let self else { return }
-                let session = await VideoDownloadManager.shared.sharedSession()
-                let t = session.dataTask(with: urlRequest)
-                self.task = t
-                await VideoDownloadManager.shared.register(task: t, delegate: self)
-                await VideoDownloadManager.shared.track(task: t, for: self.url)
-                let effPriority = await VideoDownloadManager.shared.currentPriority(for: self.url)
-                t.priority = effPriority
-                t.resume()
-            }
-        } else {
-            // Fallback: local URLSession with background delegate queue
-            let localDelegate = VideoDownloaderSessionDelegateHandler()
-            let localSession = URLSession(configuration: .ephemeral, delegate: localDelegate, delegateQueue: delegateQueue)
-            let t = localSession.dataTask(with: urlRequest)
-            localDelegate.register(task: t, delegate: self)
-            task = t
+        Task { [weak self] in
+            guard let self else { return }
+            let session = await VideoDownloadManager.shared.sharedSession()
+            let t = session.dataTask(with: urlRequest)
+            self.task = t
+            await VideoDownloadManager.shared.register(task: t, delegate: self)
+            await VideoDownloadManager.shared.track(task: t, for: self.url)
+            let effPriority = await VideoDownloadManager.shared.currentPriority(for: self.url)
+            t.priority = effPriority
             t.resume()
         }
     }
@@ -209,15 +186,13 @@ private extension VideoDownloaderHandler {
 
         // Publish AsyncStream progress (10 Hz)
         #if canImport(Foundation)
-        if #available(iOS 13.0, macOS 10.15, *) {
-            let received = Int64(startOffset)
-            let expected = Int64(configuration.info?.contentLength ?? 0)
-            let urlCopy = url
-            Task {
-                let pr = await VideoDownloadManager.shared.currentPriority(for: urlCopy)
-                let progress = DownloadProgress(url: urlCopy, receivedBytes: received, expectedBytes: expected > 0 ? expected : nil, priority: pr)
-                await VideoDownloadManager.shared.publish(progress)
-            }
+        let received = Int64(startOffset)
+        let expected = Int64(configuration.info?.contentLength ?? 0)
+        let urlCopy = url
+        Task {
+            let pr = await VideoDownloadManager.shared.currentPriority(for: urlCopy)
+            let progress = DownloadProgress(url: urlCopy, receivedBytes: received, expectedBytes: expected > 0 ? expected : nil, priority: pr)
+            await VideoDownloadManager.shared.publish(progress)
         }
         #endif
     }
