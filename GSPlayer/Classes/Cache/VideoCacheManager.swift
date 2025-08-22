@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import UniformTypeIdentifiers
 
 //private let directory = NSTemporaryDirectory().appendingPathComponent("GSPlayer")
 
@@ -16,12 +17,18 @@ private let directory: String = {
     return cachesDir.appendingPathComponent("GSPlayer").path
 }()
 
+@available(iOS 13.0, macOS 11.0, *)
 public enum VideoCacheManager {
     
-    public static func cachedFilePath(for url: URL) -> String {
-        return directory
-            .appendingPathComponent(url.absoluteString.md5)
-            .appendingPathExtension(url.pathExtension)!
+    public static func cachedFilePath(for url: URL, contentType: String? = nil) -> String {
+        let base = directory.appendingPathComponent(url.absoluteString.md5)
+        let ext: String = {
+            let p = url.pathExtension
+            if !p.isEmpty { return p }
+            if let mime = contentType, let ut = UTType(mimeType: mime), let e = ut.preferredFilenameExtension { return e }
+            return "mp4"
+        }()
+        return base.appendingPathExtension(ext)!
     }
     
     public static func cachedConfiguration(for url: URL) throws -> VideoCacheConfiguration {
