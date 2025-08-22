@@ -70,41 +70,29 @@ public actor VideoDownloadManager {
     // MARK: - Progress Streams
     private var progressContinuations: [URL: [AsyncStream<DownloadProgress>.Continuation]] = [:]
 
-    public func setPriority(for url: URL, priority: Float) {
+    public func setPriority(for url: URL, priority: Float) async {
         ensure(url)
         entries[url]!.priority = priority
-        applyPriority(to: url)
+        await self.applyPriority(to: url)
     }
 
-    public func pin(url: URL, scope: String, priority: Float) {
+    public func pin(url: URL, scope: String, priority: Float) async {
         ensure(url)
         entries[url]!.pins[scope] = priority
-        applyPriority(to: url)
+        await self.applyPriority(to: url)
     }
 
-    public func unpin(url: URL, scope: String) {
+    public func unpin(url: URL, scope: String) async {
         entries[url]?.pins.removeValue(forKey: scope)
-        applyPriority(to: url)
+        await self.applyPriority(to: url)
     }
 
-    public func pause(url: URL) {
-        guard let tids = urlToTaskIds[url] else { return }
-        let tasks = session.getAllTasksSync()
-        for tid in tids {
-            if let task = tasks.first(where: { $0.taskIdentifier == tid }) {
-                task.suspend()
-            }
-        }
+    public func pause(url: URL) async {
+        await self.pauseImpl(url: url)
     }
     
-    public func resume(url: URL) {
-        guard let tids = urlToTaskIds[url] else { return }
-        let tasks = session.getAllTasksSync()
-        for tid in tids {
-            if let task = tasks.first(where: { $0.taskIdentifier == tid }) {
-                task.resume()
-            }
-        }
+    public func resume(url: URL) async {
+        await self.resumeImpl(url: url)
     }
 
     public func setConcurrency(maxActive: Int, perHost: Int) {
@@ -151,6 +139,24 @@ public actor VideoDownloadManager {
         return max(entry.priority, entry.pins.values.max() ?? 0)
     }
 
+    // Batch update priorities with a single task scan
+    public func setPriorities(_ changes: [(URL, Float)]) async {
+        for (url, p) in changes {
+            ensure(url)
+            entries[url]!.priority = p
+        }
+        let tasks = await session.getAllTasksAsync()
+        for (url, _) in changes {
+            guard let tids = urlToTaskIds[url] else { continue }
+            let eff = currentPriority(for: url)
+            for tid in tids {
+                if let task = tasks.first(where: { $0.taskIdentifier == tid }) {
+                    task.priority = eff
+                }
+            }
+        }
+    }
+
     // Called by internal components to publish progress
     public func publish(_ progress: DownloadProgress) {
         guard let continuations = progressContinuations[progress.url] else { return }
@@ -177,10 +183,10 @@ public actor VideoDownloadManager {
     }
 
     // Apply new effective priority to all active tasks for URL
-    private func applyPriority(to url: URL) {
+    private func applyPriority(to url: URL) async {
         guard let tids = urlToTaskIds[url] else { return }
         let eff = currentPriority(for: url)
-        let tasks = session.getAllTasksSync()
+        let tasks = await session.getAllTasksAsync()
         for tid in tids {
             if let task = tasks.first(where: { $0.taskIdentifier == tid }) {
                 task.priority = eff
@@ -189,14 +195,36 @@ public actor VideoDownloadManager {
     }
 }
 
-// Helper to synchronously snapshot tasks inside actor
+// Async helper to snapshot tasks without blocking
+@available(iOS 13.0, macOS 10.15, *)
 private extension URLSession {
-    func getAllTasksSync() -> [URLSessionTask] {
-        var tasks: [URLSessionTask] = []
-        let sem = DispatchSemaphore(value: 0)
-        getAllTasks { arr in tasks = arr; sem.signal() }
-        sem.wait()
-        return tasks
+    func getAllTasksAsync() async -> [URLSessionTask] {
+        await withCheckedContinuation { cont in
+            getAllTasks { tasks in cont.resume(returning: tasks) }
+        }
+    }
+}
+
+// MARK: - Async implementations for pause/resume
+private extension VideoDownloadManager {
+    func pauseImpl(url: URL) async {
+        guard let tids = urlToTaskIds[url] else { return }
+        let tasks = await session.getAllTasksAsync()
+        for tid in tids {
+            if let task = tasks.first(where: { $0.taskIdentifier == tid }) {
+                task.suspend()
+            }
+        }
+    }
+
+    func resumeImpl(url: URL) async {
+        guard let tids = urlToTaskIds[url] else { return }
+        let tasks = await session.getAllTasksAsync()
+        for tid in tids {
+            if let task = tasks.first(where: { $0.taskIdentifier == tid }) {
+                task.resume()
+            }
+        }
     }
 }
 
