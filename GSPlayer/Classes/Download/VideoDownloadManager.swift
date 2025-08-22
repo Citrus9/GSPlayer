@@ -7,6 +7,20 @@
 
 import Foundation
 
+public struct CachedStatus: Sendable {
+    public let url: URL
+    public let downloadedBytes: Int64
+    public let expectedBytes: Int64?
+    public var percent: Double {
+        guard let expected = expectedBytes, expected > 0 else { return -1 }
+        return min(1.0, max(0.0, Double(downloadedBytes) / Double(expected)))
+    }
+    public var isComplete: Bool {
+        guard let expected = expectedBytes, expected > 0 else { return false }
+        return downloadedBytes >= expected
+    }
+}
+
 public struct DownloadProgress: Sendable {
     public let url: URL
     public let receivedBytes: Int64
@@ -133,6 +147,14 @@ public actor VideoDownloadManager {
         return AsyncStream<DownloadProgress> { continuation in
             if progressContinuations[url] == nil { progressContinuations[url] = [] }
             progressContinuations[url]?.append(continuation)
+
+            // Emit initial snapshot from on-disk cache so UI renders instantly.
+            let cfg = try? VideoCacheManager.cachedConfiguration(for: url)
+            let received = Int64(cfg?.downloadedByteCount ?? 0)
+            let exp = Int64(cfg?.info?.contentLength ?? 0)
+            let expected = exp > 0 ? exp : nil
+            let pr = currentPriority(for: url)
+            continuation.yield(DownloadProgress(url: url, receivedBytes: received, expectedBytes: expected, priority: pr))
         }
     }
 
@@ -163,6 +185,18 @@ public actor VideoDownloadManager {
     public func publish(_ progress: DownloadProgress) {
         guard let continuations = progressContinuations[progress.url] else { return }
         for c in continuations { c.yield(progress) }
+    }
+
+    // MARK: - Cached Status
+    public func cachedStatus(for url: URL) -> CachedStatus {
+        let cfg = (try? VideoCacheManager.cachedConfiguration(for: url))
+        let downloaded = Int64(cfg?.downloadedByteCount ?? 0)
+        let exp = Int64(cfg?.info?.contentLength ?? 0)
+        let expected: Int64? = exp > 0 ? exp : nil
+        #if DEBUG
+        print("🎥 [GS] 🧮 cachedStatus — recv=\(downloaded) exp=\(expected ?? -1) — \(url.lastPathComponent)")
+        #endif
+        return CachedStatus(url: url, downloadedBytes: downloaded, expectedBytes: expected)
     }
 
     private func ensure(_ url: URL) {
@@ -199,7 +233,7 @@ public actor VideoDownloadManager {
         }
     }
 
-    private func retainPrefetcher(_ downloader: VideoDownloader, for url: URL) {
+    private func retainPrefetcher(_ downloader: VideoDownloader, for url: URL) async {
         prefetchers[url] = downloader
     }
 
