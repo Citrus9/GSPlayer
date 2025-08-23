@@ -329,7 +329,7 @@ private extension VideoPlayerView {
         }
         
         playerLayerReadyForDisplayObservation = playerLayer.observe(\.isReadyForDisplay) { [unowned self, unowned player] playerLayer, _ in
-            if playerLayer.isReadyForDisplay, player.rate > 0 {
+            if playerLayer.isReadyForDisplay, player.timeControlStatus == .playing {
                 self.isLoaded = true
                 self.state = .playing
             }
@@ -343,7 +343,7 @@ private extension VideoPlayerView {
             case .waitingToPlayAtSpecifiedRate:
                 self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
             case .playing:
-                if self.playerLayer.isReadyForDisplay, player.rate > 0 {
+                if self.playerLayer.isReadyForDisplay, player.timeControlStatus == .playing {
                     self.isLoaded = true
                     if self.playProgress == 0, self.isReplay { self.isReplay = false }
                     self.state = .playing
@@ -397,21 +397,15 @@ private extension VideoPlayerView {
         
         playToEndTime?()
         
-        guard isAutoReplay, pausedReason == .waitingKeepUp else {
+        guard isAutoReplay else {
             return
         }
         
         isReplay = true
         
         replay?()
-        replayCount += 1
         
-        seek(to: CMTime.zero) { [weak self] finished in
-            guard let self else { return }
-            if (finished) {
-                self.player?.playImmediately(atRate: self.speedRate)
-            }
-        }
+        self.replay(resetCount: false)
     }
     
 }
