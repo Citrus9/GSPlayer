@@ -104,7 +104,7 @@ open class GSAVPlayerViewController: NSViewController {
         stop()
         
         self.playerView.player = AVPlayer()
-        self.player?.automaticallyWaitsToMinimizeStalling = false
+        self.player?.automaticallyWaitsToMinimizeStalling = true
         
         let playerItem = AVPlayerItem(loader: url)
         playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true

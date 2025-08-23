@@ -1,6 +1,6 @@
 {
   "name": "GSPlayer",
-  "version": "0.2.24",
+  "version": "0.2.29",
   "summary": "⏯ Video player, support for caching, fullscreen transition and custom control view. 视频播放器，支持边下边播、全屏转场和自定义控制层",
   "homepage": "https://github.com/wxxsw/GSPlayer",
   "license": "MIT",
@@ -9,7 +9,7 @@
   },
   "source": {
     "git": "https://github.com/wxxsw/GSPlayer.git",
-    "tag": "0.2.24"
+    "tag": "0.2.29"
   },
   "osx": {
     "source_files": [
@@ -30,11 +30,14 @@
     ]
   },
   "platforms": {
-    "ios": "10.0",
-    "osx": "10.12"
+    "ios": "16.0",
+    "osx": "11.0"
   },
   "swift_versions": [
-    "5.0"
+    "5.7"
   ],
-  "swift_version": "5.0"
+  "xcconfig": {
+    "ENABLE_USER_SCRIPT_SANDBOXING": "NO"
+  },
+  "swift_version": "5.7"
 }

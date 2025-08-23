@@ -195,14 +195,15 @@ private extension VideoDownloaderHandler {
             userInfo: ["configuration": configuration]
         )
 
-        // Publish AsyncStream progress (10 Hz)
+        // Publish AsyncStream progress (10 Hz) using aggregate on-disk bytes
         #if canImport(Foundation)
-        let received = Int64(startOffset)
-        let expected = Int64(configuration.info?.contentLength ?? 0)
+        let received = Int64(configuration.downloadedByteCount)
+        let expectedLen = Int64(configuration.info?.contentLength ?? 0)
+        let expected = expectedLen > 0 ? expectedLen : nil
         let urlCopy = url
         Task {
             let pr = await VideoDownloadManager.shared.currentPriority(for: urlCopy)
-            let progress = DownloadProgress(url: urlCopy, receivedBytes: received, expectedBytes: expected > 0 ? expected : nil, priority: pr)
+            let progress = DownloadProgress(url: urlCopy, receivedBytes: received, expectedBytes: expected, priority: pr)
             await VideoDownloadManager.shared.publish(progress)
         }
         #endif

@@ -174,10 +174,6 @@ open class VideoPlayerView: UIView {
     /// - Parameter url: Can be a local or remote URL
     open func play(for url: URL) {
         guard playerURL != url else {
-            if player?.timeControlStatus == .paused {
-                pausedReason = .waitingKeepUp
-                player?.playImmediately(atRate: speedRate)
-            }
             return
         }
         
@@ -188,7 +184,7 @@ open class VideoPlayerView: UIView {
         self.player?.currentItem?.asset.cancelLoading()
         
         let player = AVPlayer()
-        player.automaticallyWaitsToMinimizeStalling = false
+        player.automaticallyWaitsToMinimizeStalling = true
         
         let playerItem = AVPlayerItem(loader: url)
         playerItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true
@@ -344,9 +340,8 @@ private extension VideoPlayerView {
             case .paused:
                 guard !self.isReplay else { break }
                 self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
-                if self.pausedReason == .waitingKeepUp { player.playImmediately(atRate: speedRate) }
             case .waitingToPlayAtSpecifiedRate:
-                break
+                self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
             case .playing:
                 if self.playerLayer.isReadyForDisplay, player.rate > 0 {
                     self.isLoaded = true

@@ -237,9 +237,9 @@ public actor VideoDownloadManager {
         let downloaded = Int64(cfg?.downloadedByteCount ?? 0)
         let exp = Int64(cfg?.info?.contentLength ?? 0)
         let expected: Int64? = exp > 0 ? exp : nil
-        #if DEBUG
-        print("🎥 [GS] 🧮 cachedStatus — recv=\(downloaded) exp=\(expected ?? -1) — \(url.lastPathComponent)")
-        #endif
+        // #if DEBUG
+        // print("🎥 [GS] 🧮 cachedStatus — recv=\(downloaded) exp=\(expected ?? -1) — \(url.lastPathComponent)")
+        // #endif
         return CachedStatus(url: url, downloadedBytes: downloaded, expectedBytes: expected)
     }
 
