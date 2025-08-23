@@ -63,7 +63,7 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
     
     func handler(_ handler: VideoDownloaderHandler, didReceive response: URLResponse) {
         
-        if info == nil, let httpResponse = response as? HTTPURLResponse {
+        if let httpResponse = response as? HTTPURLResponse {
             
             let contentRangeRaw = httpResponse.value(forHeaderKey: "Content-Range")
             
@@ -91,12 +91,18 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
             let lengthFromRangeLowerBound = parsed.map { $0.end + 1 }
             let lengthFromHeader = httpResponse.value(forHeaderKey: "Content-Length").flatMap { Int($0) }
             let lengthFromExpected = (response.expectedContentLength > 0) ? Int(response.expectedContentLength) : nil
-            
-            let contentLength = lengthFromRangeTotal
+
+            let candidateContentLength = lengthFromRangeTotal
                 ?? lengthFromHeader
                 ?? lengthFromExpected
                 ?? lengthFromRangeLowerBound
                 ?? 1
+
+            // Consider a value definitive if provided by Content-Range total or Content-Length
+            let candidateIsDefinitive = (lengthFromRangeTotal ?? lengthFromHeader) != nil
+            let previousLength = info?.contentLength ?? 0
+            let shouldUpdateInfo = (info == nil)
+                || (candidateIsDefinitive && (previousLength <= 0 || candidateContentLength > previousLength))
             
             let contentType = httpResponse
                 .value(forHeaderKey: "Content-Type") ?? "video/mp4"
@@ -105,13 +111,15 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
                 .value(forHeaderKey: "Accept-Ranges")?
                 .contains("bytes") ?? false
             
-            cacheHandler.set(info: VideoInfo(
-                contentLength: contentLength,
-                contentType: contentType,
-                isByteRangeAccessSupported: isByteRangeAccessSupported
-            ))
+            if shouldUpdateInfo {
+                cacheHandler.set(info: VideoInfo(
+                    contentLength: candidateContentLength,
+                    contentType: contentType,
+                    isByteRangeAccessSupported: isByteRangeAccessSupported
+                ))
+            }
             #if DEBUG
-            print("🎥 [GS] 🧠 meta — rawCR=\(contentRangeRaw ?? "-") len=\(contentLength) type=\(contentType) range=\(isByteRangeAccessSupported)")
+            print("🎥 [GS] 🧠 meta — rawCR=\(contentRangeRaw ?? "-") len=\(candidateContentLength) type=\(contentType) range=\(isByteRangeAccessSupported)")
             #endif
         }
         
