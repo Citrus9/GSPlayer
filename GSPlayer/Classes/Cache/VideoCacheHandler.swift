@@ -123,6 +123,11 @@ public class VideoCacheHandler {
             }
         }
         
+        #if DEBUG
+        let localCount = localRemoteActions.filter { $0.actionType == .local }.count
+        let remoteCount = localRemoteActions.count - localCount
+        print("🎥 [GS] 🧮 actions — req=[\(range.location), \(range.length)] local=\(localCount) remote=\(remoteCount)")
+        #endif
         return localRemoteActions
     }
     

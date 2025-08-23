@@ -42,6 +42,9 @@ class VideoRequestLoader {
         if dataRequest.currentOffset != 0 {
             offset = Int(dataRequest.currentOffset)
         }
+        #if DEBUG
+        print("🎥 [GS] 📥 request — allToEnd=\(dataRequest.requestsAllDataToEndOfResource) offset=\(offset) length=\(length) — \(downloader.url.lastPathComponent)")
+        #endif
         
         if dataRequest.requestsAllDataToEndOfResource {
             downloader.downloadToEnd(from: offset)
@@ -103,8 +106,14 @@ private extension VideoRequestLoader {
         let utType = UTType(mimeType: mime)
             ?? UTType(filenameExtension: downloader.url.pathExtension)
             ?? .mpeg4Movie
-        // Ensure strictly positive contentLength for AVFoundation
+        // Prefer on-disk size when available; ensure strictly positive contentLength
         var effectiveLength = info.contentLength
+        let path = VideoCacheManager.cachedFilePath(for: downloader.url, contentType: info.contentType)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+           let sizeNum = attrs[.size] as? NSNumber {
+            let diskLen = sizeNum.intValue
+            if diskLen > effectiveLength { effectiveLength = diskLen }
+        }
         if effectiveLength <= 0 {
             if let dr = request.dataRequest {
                 effectiveLength = max(1, Int(dr.requestedOffset) + dr.requestedLength)
@@ -114,9 +123,9 @@ private extension VideoRequestLoader {
         }
         request.contentInformationRequest?.contentType = utType.identifier
         request.contentInformationRequest?.contentLength = Int64(effectiveLength)
-        request.contentInformationRequest?.isByteRangeAccessSupported = info.isByteRangeAccessSupported
+        request.contentInformationRequest?.isByteRangeAccessSupported = true
         #if DEBUG
-        print("🎥 [GS] 🧠 contentInfo — utType=\(utType.identifier) len=\(request.contentInformationRequest?.contentLength ?? 0) range=\(request.contentInformationRequest?.isByteRangeAccessSupported ?? false)")
+        print("🎥 [GS] 🧾 contentInfo — type=\(utType.identifier) len=\(request.contentInformationRequest?.contentLength ?? 0) range=\(request.contentInformationRequest?.isByteRangeAccessSupported ?? false)")
         #endif
     }
     

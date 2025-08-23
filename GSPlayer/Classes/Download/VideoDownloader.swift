@@ -33,7 +33,18 @@ public class VideoDownloader {
     }
     
     public func downloadToEnd(from offset: Int) {
-        download(from: offset, length: (info?.contentLength ?? offset) - offset)
+        var total = info?.contentLength ?? 0
+        if total <= 0 {
+            let path = VideoCacheManager.cachedFilePath(for: url)
+            let attrs = (try? FileManager.default.attributesOfItem(atPath: path)) ?? [:]
+            let diskLen = (attrs[.size] as? NSNumber)?.intValue ?? 0
+            total = diskLen
+        }
+        let length = total > 0 ? max(0, total - offset) : Int.max
+        #if DEBUG
+        print("🎥 [GS] 🔁 toEnd — offset=\(offset) total=\(total) length=\(length)")
+        #endif
+        download(from: offset, length: length)
     }
     
     public func download(from offset: Int, length: Int) {
@@ -98,11 +109,11 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
                 ?? lengthFromRangeLowerBound
                 ?? 1
 
-            // Consider a value definitive if provided by Content-Range total or Content-Length
-            let candidateIsDefinitive = (lengthFromRangeTotal ?? lengthFromHeader) != nil
+            let status = httpResponse.statusCode
+            let isPartial = status == 206
+            let candidateIsDefinitive = (lengthFromRangeTotal != nil) || (!isPartial && lengthFromHeader != nil)
             let previousLength = info?.contentLength ?? 0
-            let shouldUpdateInfo = (info == nil)
-                || (candidateIsDefinitive && (previousLength <= 0 || candidateContentLength > previousLength))
+            let shouldUpdateInfo = (info == nil) || (candidateContentLength > previousLength)
             
             let contentType = httpResponse
                 .value(forHeaderKey: "Content-Type") ?? "video/mp4"
@@ -119,7 +130,11 @@ extension VideoDownloader: VideoDownloaderHandlerDelegate {
                 ))
             }
             #if DEBUG
-            print("🎥 [GS] 🧠 meta — rawCR=\(contentRangeRaw ?? "-") len=\(candidateContentLength) type=\(contentType) range=\(isByteRangeAccessSupported)")
+            let cr = httpResponse.value(forHeaderKey: "Content-Range") ?? "-"
+            let cl = httpResponse.value(forHeaderKey: "Content-Length") ?? "-"
+            let exp = (response.expectedContentLength > 0) ? String(response.expectedContentLength) : "-"
+            print("🎥 [GS] 🧠 meta — status=\(status) CR=\(cr) CL=\(cl) EXP=\(exp)")
+            print("🎥 [GS] 🧠 meta — candidate len=\(candidateContentLength) definitive=\(candidateIsDefinitive) prev=\(previousLength) update=\(shouldUpdateInfo)")
             #endif
         }
         
