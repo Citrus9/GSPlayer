@@ -86,7 +86,8 @@ public actor VideoDownloadManager {
     private var perHost = 2
 
     // MARK: - Progress Streams
-    private var progressContinuations: [URL: [AsyncStream<DownloadProgress>.Continuation]] = [:]
+    private typealias ProgressContinuation = AsyncStream<DownloadProgress>.Continuation
+    private var progressContinuations: [URL: [UUID: ProgressContinuation]] = [:]
 
     public func setPriority(for url: URL, priority: Float) async {
         ensure(url)
@@ -175,8 +176,15 @@ public actor VideoDownloadManager {
 
     public func progressStream(for url: URL) -> AsyncStream<DownloadProgress> {
         return AsyncStream<DownloadProgress> { continuation in
-            if progressContinuations[url] == nil { progressContinuations[url] = [] }
-            progressContinuations[url]?.append(continuation)
+            let token = UUID()
+            if progressContinuations[url] == nil { progressContinuations[url] = [:] }
+            progressContinuations[url]?[token] = continuation
+
+            continuation.onTermination = { _ in
+                Task { [weak self] in
+                    await self?.removeProgressContinuation(token: token, for: url)
+                }
+            }
 
             // Emit initial snapshot from on-disk cache so UI renders instantly.
             let cfg = try? VideoCacheManager.cachedConfiguration(for: url)
@@ -214,7 +222,13 @@ public actor VideoDownloadManager {
     // Called by internal components to publish progress
     public func publish(_ progress: DownloadProgress) {
         guard let continuations = progressContinuations[progress.url] else { return }
-        for c in continuations { c.yield(progress) }
+        for (_, c) in continuations { c.yield(progress) }
+    }
+
+    // Proactively stop and remove all progress streams for a URL
+    public func stopProgress(for url: URL) {
+        guard let continuations = progressContinuations.removeValue(forKey: url) else { return }
+        for (_, c) in continuations { c.finish() }
     }
 
     // MARK: - Cached Status
@@ -231,6 +245,16 @@ public actor VideoDownloadManager {
 
     private func ensure(_ url: URL) {
         if entries[url] == nil { entries[url] = Entry(priority: 0.2, pins: [:]) }
+    }
+
+    private func removeProgressContinuation(token: UUID, for url: URL) {
+        guard var dict = progressContinuations[url] else { return }
+        dict.removeValue(forKey: token)
+        if dict.isEmpty {
+            progressContinuations.removeValue(forKey: url)
+        } else {
+            progressContinuations[url] = dict
+        }
     }
 
     // MARK: - URL ↔︎ Task registry API
