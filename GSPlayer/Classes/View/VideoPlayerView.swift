@@ -215,8 +215,16 @@ open class VideoPlayerView: UIView {
     /// - Parameter resetCount: Reset replayCount
     open func replay(resetCount: Bool = false) {
         replayCount = resetCount ? 0 : replayCount + 1
-        player?.seek(to: .zero)
-        resume()
+        #if DEBUG
+        print("🎥 [GS] 🔁 autoReplay — seeking→0")
+        #endif
+        player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            #if DEBUG
+            print("🎥 [GS] 🔁 autoReplay — seek ok=true; resuming")
+            #endif
+            let rate = self?.speedRate ?? 1.0
+            self?.player?.playImmediately(atRate: rate)
+        }
     }
     
     /// Continue playing video.
@@ -402,10 +410,7 @@ private extension VideoPlayerView {
         }
         
         isReplay = true
-        
-        replay?()
-        
-        self.replay(resetCount: false)
+        replay(resetCount: false)
     }
     
 }
