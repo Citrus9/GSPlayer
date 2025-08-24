@@ -121,6 +121,12 @@ open class VideoPlayerView: UIView {
         return isLoaded ? currentDuration + totalDuration * Double(replayCount) : 0
     }
     
+    /// Whether the first frame has been presented. Used to gate visibility.
+    private var hasPresentedFirstFrame = false
+
+    /// Fires once when the first frame becomes renderable.
+    open var firstFrameReady: (() -> Void)?
+
     private var isLoaded = false
     private var isReplay = false
     
@@ -195,6 +201,7 @@ open class VideoPlayerView: UIView {
         self.replayCount = 0
         self.isReplay = false
         self.isLoaded = false
+        self.hasPresentedFirstFrame = false
         
         if playerItem.isEnoughToPlay || url.isFileURL {
             state = .none
@@ -321,8 +328,9 @@ private extension VideoPlayerView {
         }
         
         switch state {
-        case .playing, .paused: isHidden = false
-        default:                isHidden = true
+        case .playing: isHidden = false
+        case .paused where hasPresentedFirstFrame: isHidden = false
+        default: isHidden = true
         }
         
         stateDidChanged?(state)
@@ -338,6 +346,10 @@ private extension VideoPlayerView {
         
         playerLayerReadyForDisplayObservation = playerLayer.observe(\.isReadyForDisplay) { [unowned self, unowned player] playerLayer, _ in
             if playerLayer.isReadyForDisplay, player.timeControlStatus == .playing {
+                if !self.hasPresentedFirstFrame {
+                    self.hasPresentedFirstFrame = true
+                    self.firstFrameReady?()
+                }
                 self.isLoaded = true
                 self.state = .playing
             }
@@ -347,11 +359,23 @@ private extension VideoPlayerView {
             switch player.timeControlStatus {
             case .paused:
                 guard !self.isReplay else { break }
-                self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
+                if self.hasPresentedFirstFrame {
+                    self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
+                } else {
+                    self.state = .loading
+                }
             case .waitingToPlayAtSpecifiedRate:
-                self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
+                if self.hasPresentedFirstFrame {
+                    self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
+                } else {
+                    self.state = .loading
+                }
             case .playing:
                 if self.playerLayer.isReadyForDisplay, player.timeControlStatus == .playing {
+                    if !self.hasPresentedFirstFrame {
+                        self.hasPresentedFirstFrame = true
+                        self.firstFrameReady?()
+                    }
                     self.isLoaded = true
                     if self.playProgress == 0, self.isReplay { self.isReplay = false }
                     self.state = .playing
