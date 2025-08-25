@@ -129,6 +129,7 @@ open class VideoPlayerView: UIView {
 
     private var isLoaded = false
     private var isReplay = false
+    private var replayId: Int = 0
     
     private var playerBufferingObservation: NSKeyValueObservation?
     private var playerItemKeepUpObservation: NSKeyValueObservation?
@@ -202,6 +203,7 @@ open class VideoPlayerView: UIView {
         self.isReplay = false
         self.isLoaded = false
         self.hasPresentedFirstFrame = false
+        self.replayId = 0
         
         if playerItem.isEnoughToPlay || url.isFileURL {
             state = .none
@@ -222,6 +224,7 @@ open class VideoPlayerView: UIView {
     /// - Parameter resetCount: Reset replayCount
     open func replay(resetCount: Bool = false) {
         replayCount = resetCount ? 0 : replayCount + 1
+        if resetCount { replayId = 0 } else { replayId += 1 }
         #if DEBUG
         print("🎥 [GS] 🔁 autoReplay — seeking→0")
         #endif
@@ -365,7 +368,7 @@ private extension VideoPlayerView {
             case .paused:
                 let reason = player.reasonForWaitingToPlay?.rawValue ?? "-"
                 #if DEBUG
-                print("🎥 [GS] ⏸ timeCtrl=paused [loop:\(self.replayId)] rate=\(player.rate) likely=\(likely) empty=\(bufEmpty) full=\(bufFull)")
+                print("🎥 [GS] ⏸ timeCtrl=paused reason=\(reason) [loop:\(self.replayId)] rate=\(player.rate) likely=\(likely) empty=\(bufEmpty) full=\(bufFull)")
                 #endif
 
                 guard !self.isReplay else { break }
@@ -377,7 +380,7 @@ private extension VideoPlayerView {
             case .waitingToPlayAtSpecifiedRate:
                 let reason = player.reasonForWaitingToPlay?.rawValue ?? "-"
                 #if DEBUG
-                print("🎥 [GS] ⏳ timeCtrl=waiting [loop:\(self.replayId)] rate=\(player.rate) likely=\(likely) empty=\(bufEmpty) full=\(bufFull)")
+                print("🎥 [GS] ⏳ timeCtrl=waiting reason=\(reason) [loop:\(self.replayId)] rate=\(player.rate) likely=\(likely) empty=\(bufEmpty) full=\(bufFull)")
                 #endif
                 if self.hasPresentedFirstFrame {
                     self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
