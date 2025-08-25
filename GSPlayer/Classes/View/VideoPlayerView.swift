@@ -130,6 +130,8 @@ open class VideoPlayerView: UIView {
     private var isLoaded = false
     private var isReplay = false
     private var replayId: Int = 0
+    private var endObserverToken: NSObjectProtocol?
+    private var suppressDuplicateEndUntil: CFAbsoluteTime = 0
     
     private var playerBufferingObservation: NSKeyValueObservation?
     private var playerItemKeepUpObservation: NSKeyValueObservation?
@@ -171,6 +173,10 @@ open class VideoPlayerView: UIView {
     
     deinit {
         NotificationCenter.default.removeObserver(self)
+        if let existing = endObserverToken {
+            NotificationCenter.default.removeObserver(existing)
+            endObserverToken = nil
+        }
     }
 }
 
@@ -225,12 +231,20 @@ open class VideoPlayerView: UIView {
     open func replay(resetCount: Bool = false) {
         replayCount = resetCount ? 0 : replayCount + 1
         if resetCount { replayId = 0 } else { replayId += 1 }
+
+        // Reset gating so the layer will signal first-frame again after seek
+        hasPresentedFirstFrame = false
+
+        // Pause first to avoid end-notification re-entry races on some devices
+        player?.pause()
+
         #if DEBUG
-        print("🎥 [GS] 🔁 autoReplay — seeking→0")
+        print("🎥 [GS] 🔁 autoReplay — id=\(replayId) seek→0")
         #endif
+
         player?.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             #if DEBUG
-            print("🎥 [GS] 🔁 autoReplay — seek ok=true; resuming")
+            print("🎥 [GS] 🔁 autoReplay — id=\(self?.replayId ?? -1) seek ok; resume")
             #endif
             let rate = self?.speedRate ?? 1.0
             self?.player?.playImmediately(atRate: rate)
@@ -314,13 +328,6 @@ private extension VideoPlayerView {
         
         isHidden = true
         
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(playerItemDidReachEnd(notification:)),
-            name: .AVPlayerItemDidPlayToEndTime,
-            object: nil
-        )
-        
         layer.addSublayer(playerLayer)
     }
     
@@ -379,8 +386,10 @@ private extension VideoPlayerView {
                 }
             case .waitingToPlayAtSpecifiedRate:
                 let reason = player.reasonForWaitingToPlay?.rawValue ?? "-"
+                let bufDur = self.currentBufferDuration
+                let cur = self.currentDuration
                 #if DEBUG
-                print("🎥 [GS] ⏳ timeCtrl=waiting reason=\(reason) [loop:\(self.replayId)] rate=\(player.rate) likely=\(likely) empty=\(bufEmpty) full=\(bufFull)")
+                print("🎥 [GS] ⏳ timeCtrl=waiting reason=\(reason) bufDur=\(String(format: "%.2f", bufDur)) cur=\(String(format: "%.2f", cur)) [loop:\(self.replayId)] rate=\(player.rate) likely=\(likely) empty=\(bufEmpty) full=\(bufFull)")
                 #endif
                 if self.hasPresentedFirstFrame {
                     self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
@@ -407,6 +416,11 @@ private extension VideoPlayerView {
     }
     
     func observe(playerItem: AVPlayerItem?) {
+        
+        if let existing = endObserverToken {
+            NotificationCenter.default.removeObserver(existing)
+            endObserverToken = nil
+        }
         
         guard let playerItem = playerItem else {
             playerBufferingObservation = nil
@@ -445,12 +459,35 @@ private extension VideoPlayerView {
                 }
             }
         }
+        
+        endObserverToken = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] note in
+            guard let self = self else { return }
+            let now = CFAbsoluteTimeGetCurrent()
+            if now < self.suppressDuplicateEndUntil {
+                #if DEBUG
+                print("🎥 [GS] ⚠️ end event suppressed (duplicate)")
+                #endif
+                return
+            }
+            self.suppressDuplicateEndUntil = now + 0.05
+            self.playerItemDidReachEnd(notification: note)
+        }
     }
     
     @objc func playerItemDidReachEnd(notification: Notification) {
         guard (notification.object as? AVPlayerItem) == player?.currentItem else {
             return
         }
+        
+        #if DEBUG
+        let dur = player?.currentItem?.duration.seconds ?? 0
+        let cur = player?.currentItem?.currentTime().seconds ?? 0
+        print("🎥 [GS] ⛳️ END event — cur=\(String(format: "%.2f", cur))/\(String(format: "%.2f", dur)) id=\(replayId)")
+        #endif
         
         playToEndTime?()
         
