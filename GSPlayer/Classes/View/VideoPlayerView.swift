@@ -416,6 +416,11 @@ private extension VideoPlayerView {
         }
         
         playerBufferingObservation = playerItem.observe(\.loadedTimeRanges) { [unowned self] item, _ in
+            let bufDur = self.currentBufferDuration
+            let cur = self.currentDuration
+            #if DEBUG
+            print("🎥 [GS] 🧱 buffer — cur=\(String(format:"%.2f",cur)) bufDur=\(String(format:"%.2f",bufDur))")
+            #endif
             if case .paused = self.state, self.pausedReason != .hidden {
                 self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
             }
