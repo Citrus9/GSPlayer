@@ -404,9 +404,6 @@ private extension VideoPlayerView {
                     }
                     self.isLoaded = true
                     if self.playProgress == 0, self.isReplay { self.isReplay = false }
-                    #if DEBUG
-                    print("🎥 [GS] ▶️ timeCtrl=playing [loop:\(self.replayId)]")
-                    #endif
                     self.state = .playing
                 }
             @unknown default:
