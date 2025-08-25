@@ -356,8 +356,18 @@ private extension VideoPlayerView {
         }
         
         playerTimeControlStatusObservation = player.observe(\.timeControlStatus) { [unowned self] player, _ in
+
+            let likely = player.currentItem?.isPlaybackLikelyToKeepUp ?? false
+            let bufEmpty = player.currentItem?.isPlaybackBufferEmpty ?? false
+            let bufFull = player.currentItem?.isPlaybackBufferFull ?? false
+
             switch player.timeControlStatus {
             case .paused:
+                let reason = player.reasonForWaitingToPlay?.rawValue ?? "-"
+                #if DEBUG
+                print("🎥 [GS] ⏸ timeCtrl=paused [loop:\(self.replayId)] rate=\(player.rate) likely=\(likely) empty=\(bufEmpty) full=\(bufFull)")
+                #endif
+
                 guard !self.isReplay else { break }
                 if self.hasPresentedFirstFrame {
                     self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
@@ -365,6 +375,10 @@ private extension VideoPlayerView {
                     self.state = .loading
                 }
             case .waitingToPlayAtSpecifiedRate:
+                let reason = player.reasonForWaitingToPlay?.rawValue ?? "-"
+                #if DEBUG
+                print("🎥 [GS] ⏳ timeCtrl=waiting [loop:\(self.replayId)] rate=\(player.rate) likely=\(likely) empty=\(bufEmpty) full=\(bufFull)")
+                #endif
                 if self.hasPresentedFirstFrame {
                     self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
                 } else {
@@ -378,6 +392,9 @@ private extension VideoPlayerView {
                     }
                     self.isLoaded = true
                     if self.playProgress == 0, self.isReplay { self.isReplay = false }
+                    #if DEBUG
+                    print("🎥 [GS] ▶️ timeCtrl=playing [loop:\(self.replayId)]")
+                    #endif
                     self.state = .playing
                 }
             @unknown default:
