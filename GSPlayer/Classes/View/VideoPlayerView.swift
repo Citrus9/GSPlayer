@@ -255,7 +255,7 @@ open class VideoPlayerView: UIView {
     
     /// Continue playing video.
     open func resume() {
-        pausedReason = .waitingKeepUp
+        // pausedReason = .waitingKeepUp
         // Use play() so AVPlayer can manage stalls; apply speedRate and let it take effect when playback resumes
         player?.play()
         player?.rate = speedRate
