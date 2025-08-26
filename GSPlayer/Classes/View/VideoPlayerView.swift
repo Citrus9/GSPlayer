@@ -247,14 +247,18 @@ open class VideoPlayerView: UIView {
             print("🎥 [GS] 🔁 autoReplay — id=\(self?.replayId ?? -1) seek ok; resume")
             #endif
             let rate = self?.speedRate ?? 1.0
-            self?.player?.playImmediately(atRate: rate)
+            // Use play() to respect AVPlayer's buffering behavior; set rate separately so it takes effect once playing
+            self?.player?.play()
+            self?.player?.rate = rate
         }
     }
     
     /// Continue playing video.
     open func resume() {
         pausedReason = .waitingKeepUp
-        player?.playImmediately(atRate: speedRate)
+        // Use play() so AVPlayer can manage stalls; apply speedRate and let it take effect when playback resumes
+        player?.play()
+        player?.rate = speedRate
     }
     
     /// Pause video.
@@ -356,6 +360,18 @@ private extension VideoPlayerView {
         
         playerLayerReadyForDisplayObservation = playerLayer.observe(\.isReadyForDisplay) { [unowned self, unowned player] playerLayer, _ in
             if playerLayer.isReadyForDisplay, player.timeControlStatus == .playing {
+
+                // Must be likely to keep up before promoting to playing
+                let likely = player.currentItem?.isPlaybackLikelyToKeepUp ?? false
+                if !likely {
+                    if self.hasPresentedFirstFrame {
+                        self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
+                    } else {
+                        self.state = .loading
+                    }
+                    return
+                }
+
                 if !self.hasPresentedFirstFrame {
                     self.hasPresentedFirstFrame = true
                     self.firstFrameReady?()
@@ -398,6 +414,18 @@ private extension VideoPlayerView {
                 }
             case .playing:
                 if self.playerLayer.isReadyForDisplay, player.timeControlStatus == .playing {
+
+                    // New: must be ready to keep up before promoting to playing
+                    let likely = player.currentItem?.isPlaybackLikelyToKeepUp ?? false
+                    if !likely {
+                        if self.hasPresentedFirstFrame {
+                            self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
+                        } else {
+                            self.state = .loading
+                        }
+                        return
+                    }
+
                     if !self.hasPresentedFirstFrame {
                         self.hasPresentedFirstFrame = true
                         self.firstFrameReady?()
@@ -452,7 +480,11 @@ private extension VideoPlayerView {
         playerItemKeepUpObservation = playerItem.observe(\.isPlaybackLikelyToKeepUp) { [unowned self] item, _ in
             if item.isPlaybackLikelyToKeepUp {
                 if self.player?.rate == 0, self.pausedReason == .waitingKeepUp {
-                    self.player?.playImmediately(atRate: speedRate)
+                    
+                    // self.player?.playImmediately(atRate: speedRate) // this is old
+                    // Use play() so AVPlayer manages buffering; set rate so desired speed applies once playback resumes
+                    self.player?.play()
+                    self.player?.rate = self.speedRate
                 }
             }
         }
