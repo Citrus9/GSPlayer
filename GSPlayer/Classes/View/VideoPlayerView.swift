@@ -363,7 +363,9 @@ private extension VideoPlayerView {
 
                 // Must be likely to keep up before promoting to playing
                 let likely = player.currentItem?.isPlaybackLikelyToKeepUp ?? false
-                if !likely {
+                let bufferAhead = self.currentBufferDuration - self.currentDuration
+                let resumeThreshold: Double = 0.8 // seconds of ahead buffer to allow promotion even if likely==false
+                if !likely && bufferAhead < resumeThreshold {
                     if self.hasPresentedFirstFrame {
                         self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
                     } else {
@@ -417,7 +419,9 @@ private extension VideoPlayerView {
 
                     // New: must be ready to keep up before promoting to playing
                     let likely = player.currentItem?.isPlaybackLikelyToKeepUp ?? false
-                    if !likely {
+                    let bufferAhead = self.currentBufferDuration - self.currentDuration
+                    let resumeThreshold: Double = 0.8 // seconds of ahead buffer to allow promotion even if likely==false
+                    if !likely && bufferAhead < resumeThreshold {
                         if self.hasPresentedFirstFrame {
                             self.state = .paused(playProgress: self.playProgress, bufferProgress: self.bufferProgress)
                         } else {
